@@ -5,7 +5,6 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
 import pins
-import time
 from . import manual_probe
 
 HINT_TIMEOUT = """
@@ -121,7 +120,6 @@ class PrinterProbe:
         phoming = self.printer.lookup_object('homing')
         pos = toolhead.get_position()
         pos[2] = self.z_position
-
         try:
             epos = phoming.probing_move(self.mcu_probe, pos, speed)
         except self.printer.command_error as e:
@@ -158,16 +156,11 @@ class PrinterProbe:
                                        self.samples_retries, minval=0)
         samples_result = gcmd.get("SAMPLES_RESULT", self.samples_result)
         must_notify_multi_probe = not self.multi_probe_pending
-        toolhead = self.printer.lookup_object('toolhead')
-        load_cell = self.printer.lookup_object('magneto_load_cell')
         if must_notify_multi_probe:
             self.multi_probe_begin()
         probexy = self.printer.lookup_object('toolhead').get_position()[:2]
         retries = 0
         positions = []
-        # if load_cell is not None:
-        #     load_cell.clear_load_cell()
-        #     toolhead.dwell(1.)
         while len(positions) < sample_count:
             # Probe position
             pos = self._probe(speed)
@@ -202,8 +195,7 @@ class PrinterProbe:
         self.last_state = res
         gcmd.respond_info("probe: %s" % (["open", "TRIGGERED"][not not res],))
     def get_status(self, eventtime):
-        return {'name': self.name,
-                'last_query': self.last_state,
+        return {'last_query': self.last_state,
                 'last_z_result': self.last_z_result}
     cmd_PROBE_ACCURACY_help = "Probe Z-height accuracy at current XY position"
     def cmd_PROBE_ACCURACY(self, gcmd):
@@ -370,8 +362,7 @@ class ProbePointsHelper:
         if default_points is None or config.get('points', None) is not None:
             self.probe_points = config.getlists('points', seps=(',', '\n'),
                                                 parser=float, count=2)
-        def_move_z = config.getfloat('horizontal_move_z', 5.)
-        self.default_horizontal_move_z = def_move_z
+        self.horizontal_move_z = config.getfloat('horizontal_move_z', 5.)
         self.speed = config.getfloat('speed', 50., above=0.)
         self.use_offsets = False
         # Internal probing state
@@ -416,11 +407,7 @@ class ProbePointsHelper:
         # Lookup objects
         probe = self.printer.lookup_object('probe', None)
         method = gcmd.get('METHOD', 'automatic').lower()
-        toolhead = self.printer.lookup_object('toolhead')
         self.results = []
-        def_move_z = self.default_horizontal_move_z
-        self.horizontal_move_z = gcmd.get_float('HORIZONTAL_MOVE_Z',
-                                                def_move_z)
         if probe is None or method != 'automatic':
             # Manual probe
             self.lift_speed = self.speed
@@ -433,7 +420,6 @@ class ProbePointsHelper:
         if self.horizontal_move_z < self.probe_offsets[2]:
             raise gcmd.error("horizontal_move_z can't be less than"
                              " probe's z_offset")
-
         probe.multi_probe_begin()
         while 1:
             done = self._move_next()
